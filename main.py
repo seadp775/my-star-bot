@@ -22,7 +22,6 @@ class SellAccount(StatesGroup):
 TOKEN = "8742664439:AAEzi_ucWeV2t3KrzUUbWr5ngRQLX24HkYc"
 ADMIN_ID = 8266529611
 SUPPORT_URL = "https://t.me/favorit_shop_humber"
-# Ссылка на твое фото МЕНЮ
 MENU_PHOTO_URL = "https://raw.githubusercontent.com/seadp775/my-star-bot/main/1000036915.jpg"
 
 bot = Bot(token=TOKEN)
