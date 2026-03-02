@@ -92,7 +92,7 @@ async def process_finish(callback: types.CallbackQuery, state: FSMContext):
     else:
         await callback.message.answer("Начнем сначала.")
         await sell_start(callback, state)
-    await callback.answer()
+    await callback.
 
 async def main():
     logging.basicConfig(level=logging.INFO)
