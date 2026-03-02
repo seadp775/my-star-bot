@@ -7,22 +7,19 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
-# --- БЛОК 24/7 ---
 app = Flask('')
 @app.route('/')
 def home(): return "Бот работает!"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
-# --- СОСТОЯНИЯ АНКЕТЫ ---
 class SellAccount(StatesGroup):
     account_type = State()
     country = State()
     minus_info = State()
     confirm = State()
 
-# --- НАСТРОЙКИ ---
-TOKEN = "8742664439:AAEzi_ucWeV2t3KrzUUbWr5ngRQLX24HkYc" 
+TOKEN = "8742664439:AAEzi_ucWeV2t3KrzUUbWr5ngRQLX24HkYc"
 ADMIN_ID = 8266529611
 SUPPORT_URL = "https://t.me/favorit_shop_humber"
 MENU_PHOTO_URL = "https://raw.githubusercontent.com/seadp775/my-star-bot/main/1000036915.jpg"
@@ -40,15 +37,18 @@ def main_menu():
     return types.InlineKeyboardMarkup(inline_keyboard=kb)
 
 @dp.message(CommandStart())
-async def start_command(message: types.Message):
-    await message.answer_photo(photo=MENU_PHOTO_URL, caption=f"Привет! Это «Фаворит шоп» 👮. Баланс: **0 ₽**", reply_markup=main_menu(), parse_mode="Markdown")
+async def start_command(message: types.Message, state: FSMContext):
+    await state.clear()
+    try:
+        await message.answer_photo(photo=MENU_PHOTO_URL, caption=f"Привет! Это «Фаворит шоп» 👮. Баланс: **0 ₽**", reply_markup=main_menu(), parse_mode="Markdown")
+    except:
+        await message.answer(f"Привет! Это «Фаворит шоп» 👮. Баланс: **0 ₽**", reply_markup=main_menu(), parse_mode="Markdown")
 
 @dp.callback_query(F.data == "profile")
 async def profile_handler(callback: types.CallbackQuery):
     await callback.message.answer(f"👤 **Профиль**\n🆔 ID: `{callback.from_user.id}`\n💰 Баланс: **0 ₽**", parse_mode="Markdown", reply_markup=main_menu())
     await callback.answer()
 
-# --- ЛОГИКА ПРОДАЖИ ---
 @dp.callback_query(F.data == "sell_account")
 async def sell_start(callback: types.CallbackQuery, state: FSMContext):
     kb = [[types.InlineKeyboardButton(text="🛡️ Дроп", callback_data="type_drop"), 
@@ -75,13 +75,7 @@ async def process_country(message: types.Message, state: FSMContext):
 async def process_verify(message: types.Message, state: FSMContext):
     await state.update_data(minuses=message.text)
     data = await state.get_data()
-    
-    verify_text = (f"🔍 **Проверьте ваши данные:**\n\n"
-                   f"📍 Тип: {data['type']}\n"
-                   f"🚩 Страна: {data['country']}\n"
-                   f"❌ Минусы: {data['minuses']}\n\n"
-                   f"**Всё верно?**")
-    
+    verify_text = (f"🔍 **Проверьте данные:**\n📍 Тип: {data['type']}\n🚩 Страна: {data['country']}\n❌ Минусы: {data['minuses']}\n\n**Всё верно?**")
     kb = [[types.InlineKeyboardButton(text="✅ Да", callback_data="confirm_yes"),
            types.InlineKeyboardButton(text="❌ Нет", callback_data="confirm_no")]]
     await message.answer(verify_text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
@@ -93,15 +87,11 @@ async def process_finish(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
         admin_msg = f"🚀 **Заявка!**\nОт: @{callback.from_user.username}\nТип: {data['type']}\nСтрана: {data['country']}\nМинусы: {data['minuses']}"
         await bot.send_message(ADMIN_ID, admin_msg)
-        await callback.message.answer("Хорошо, мы только что прислали Администратору информацию, ждите! Если он не отвечает более 10 часов — заполните заново!", reply_markup=main_menu())
+        await callback.message.answer("Информация отправлена Администратору! Ждите ответа.", reply_markup=main_menu())
         await state.clear()
     else:
-        await callback.message.answer("Хорошо, давай начнем сначала.")
-        # Повтор первого вопроса
-        kb = [[types.InlineKeyboardButton(text="🛡️ Дроп", callback_data="type_drop"), 
-               types.InlineKeyboardButton(text="🌐 Визуальный", callback_data="type_visual")]]
-        await callback.message.answer("Какой ваш номер?", reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb))
-        await state.set_state(SellAccount.account_type)
+        await callback.message.answer("Начнем сначала.")
+        await sell_start(callback, state)
     await callback.answer()
 
 async def main():
