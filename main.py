@@ -23,7 +23,7 @@ class ShopState(StatesGroup):
 TOKEN = "8742664439:AAEzi_ucWeV2t3KrzUUbWr5ngRQLX24HkYc"
 # Впиши сюда свой ID и ID менеджера (цифрами!)
 ADMIN_ID = 8266529611 
-MANAGER_ID = 8266529611 # Пока поставлю твой, замени на ID менеджера если нужно
+MANAGER_ID = 8490517217 # Пока поставлю твой, замени на ID менеджера если нужно
 
 MENU_PHOTO = "https://cdn-ru.ru/sub/18e79943-e4a8-445c-9271-571f0df51f14"
 CHANNEL_URL = "https://t.me/+P5-6K7k3625kNzAy"
