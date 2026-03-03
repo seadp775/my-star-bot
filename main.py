@@ -7,27 +7,23 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
-# --- БЛОК 24/7 ДЛЯ RENDER ---
+# --- СЕРВЕР ДЛЯ RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "Бот «Фаворит шоп» активен! 👮"
+def home(): return "Favorit Shop Active! 👮"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
 # --- СОСТОЯНИЯ ---
-class ShopState(StatesGroup):
-    selling = State() # Для анкеты продажи
-    top_up = State() # Для ввода суммы звезд
+class Form(StatesGroup):
+    waiting_for_sell_data = State()
 
 # --- КОНФИГ ---
 TOKEN = "8742664439:AAEzi_ucWeV2t3KrzUUbWr5ngRQLX24HkYc"
-# Впиши сюда свой ID и ID менеджера (цифрами!)
-ADMIN_ID = 8266529611 
-MANAGER_ID = 8490517217 # Пока поставлю твой, замени на ID менеджера если нужно
+ADMIN_ID = 8266529611      # Твой ID (для покупок)
+MANAGER_ID = 8490517217    # ID Менеджера (для продаж)
 
 MENU_PHOTO = "https://cdn-ru.ru/sub/18e79943-e4a8-445c-9271-571f0df51f14"
-CHANNEL_URL = "https://t.me/+P5-6K7k3625kNzAy"
-SUPPORT = "@favorit_shop_humber"
 
 PRICES = {
     "🇮🇳 Индия": 60, "🇨🇦 Канада": 130, "🇧🇩 Бангладеш": 100,
@@ -39,21 +35,21 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # --- КЛАВИАТУРЫ ---
-def get_main_kb():
+def main_kb():
     return types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="📱 Купить аккаунт", callback_data="buy_list")],
         [types.InlineKeyboardButton(text="💰 Продать аккаунт", callback_data="sell_start")],
         [types.InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
          types.InlineKeyboardButton(text="⭐ Пополнить (Stars)", callback_data="top_up_stars")],
-        [types.InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/favorit_shop_humber")]
+        [types.InlineKeyboardButton(text="🆘 Поддержка", url="https://t.me/favorit_shop_humber")]
     ])
 
-def back_to_menu():
+def back_btn():
     return types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="⬅️ В главное меню", callback_data="to_main")]
+        [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="to_main")]
     ])
 
-# --- ОБРАБОТЧИКИ ---
+# --- ЛОГИКА ---
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -61,39 +57,44 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await message.answer_photo(
         photo=MENU_PHOTO,
         caption="👮 **Добро пожаловать в Фаворит шоп!**\n\nВыбирай нужный раздел ниже:",
-        reply_markup=get_main_kb(),
+        reply_markup=main_kb(),
         parse_mode="Markdown"
     )
 
 @dp.callback_query(F.data == "to_main")
 async def to_main(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    # Удаляем старое и шлем новое меню, чтобы фото всегда было сверху
-    await call.message.delete()
-    await cmd_start(call.message, state)
+    try:
+        # Редактируем старое, чтобы не спамить
+        await call.message.edit_caption(
+            caption="👮 **Главное меню**\n\nВыбирай раздел:",
+            reply_markup=main_kb(),
+            parse_mode="Markdown"
+        )
+    except:
+        await call.message.delete()
+        await cmd_start(call.message, state)
 
-# --- ПОКУПКА ---
+# --- ПРОФИЛЬ ---
+@dp.callback_query(F.data == "profile")
+async def profile(call: types.CallbackQuery):
+    text = f"👤 **ВАШ ПРОФИЛЬ**\n\n🆔 ID: `{call.from_user.id}`\n💰 Баланс: **0 фофаридок**"
+    await call.message.edit_caption(caption=text, reply_markup=back_btn(), parse_mode="Markdown")
+
+# --- ПОКУПКА (Уведомление тебе) ---
 @dp.callback_query(F.data == "buy_list")
 async def buy_list(call: types.CallbackQuery):
-    kb = []
-    for country, price in PRICES.items():
-        kb.append([types.InlineKeyboardButton(text=f"{country} — {price}₽", callback_data=f"order_{country}")])
+    kb = [[types.InlineKeyboardButton(text=f"{c} — {p}₽", callback_data=f"order_{c}")] for c, p in PRICES.items()]
     kb.append([types.InlineKeyboardButton(text="⬅️ Назад", callback_data="to_main")])
-    
-    await call.message.edit_caption(
-        caption="📱 **ВЫБЕРИТЕ СТРАНУ ДЛЯ ПОКУПКИ:**",
-        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb),
-        parse_mode="Markdown"
-    )
+    await call.message.edit_caption(caption="📱 **ВЫБЕРИТЕ СТРАНУ:**", reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("order_"))
 async def order_confirm(call: types.CallbackQuery):
     country = call.data.split("_")[1]
-    price = PRICES[country]
     await call.message.edit_caption(
-        caption=f"🌍 **Заказ:** {country}\n💰 **Цена:** {price} фофаридок\n\nДля покупки у вас должен быть баланс. Желаете продолжить?",
+        caption=f"🌍 **Товар:** {country}\n\nОтправить заявку администратору?",
         reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="✅ Оформить заявку", callback_data=f"send_order_{country}")],
+            [types.InlineKeyboardButton(text="✅ Купить", callback_data=f"send_order_{country}")],
             [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_list")]
         ]),
         parse_mode="Markdown"
@@ -102,55 +103,36 @@ async def order_confirm(call: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("send_order_"))
 async def send_order(call: types.CallbackQuery):
     country = call.data.split("_")[2]
-    await bot.send_message(ADMIN_ID, f"🛍 **НОВЫЙ ЗАКАЗ!**\n👤 От: @{call.from_user.username}\n🌍 Товар: {country}")
-    await call.message.edit_caption(
-        caption=f"✅ **Заявка на {country} отправлена!**\nАдмин свяжется с тобой для выдачи товара.",
-        reply_markup=back_to_menu(),
-        parse_mode="Markdown"
-    )
+    # УВЕДОМЛЕНИЕ АДМИНУ (ТЕБЕ)
+    await bot.send_message(ADMIN_ID, f"🛍 **НОВЫЙ ЗАКАЗ!**\n👤 Клиент: @{call.from_user.username}\n🌍 Товар: {country}")
+    await call.message.edit_caption(caption=f"✅ **Заявка на {country} отправлена!**\nАдмин свяжется с тобой.", reply_markup=back_btn(), parse_mode="Markdown")
 
-# --- ПРОДАЖА ---
+# --- ПРОДАЖА (Уведомление менеджеру) ---
 @dp.callback_query(F.data == "sell_start")
 async def sell_start(call: types.CallbackQuery, state: FSMContext):
-    await call.message.edit_caption(
-        caption="💰 **ПРОДАЖА АККАУНТА**\n\nПришлите данные (страна, отлёжка, цена) одним сообщением:",
-        reply_markup=back_to_menu(),
-        parse_mode="Markdown"
-    )
-    await state.set_state(ShopState.selling)
+    await call.message.edit_caption(caption="💰 **ПРОДАЖА**\n\nПришли данные об аккаунте (Страна, отлёжка, цена):", reply_markup=back_btn(), parse_mode="Markdown")
+    await state.set_state(Form.waiting_for_sell_data)
 
-@dp.message(ShopState.selling)
+@dp.message(Form.waiting_for_sell_data)
 async def sell_process(message: types.Message, state: FSMContext):
-    await bot.send_message(ADMIN_ID, f"💰 **ПРЕДЛОЖЕНИЕ ПРОДАЖИ!**\n👤 От: @{message.from_user.username}\n📝 Данные: {message.text}")
-    await bot.send_message(MANAGER_ID, f"💰 **ПРЕДЛОЖЕНИЕ ПРОДАЖИ!**\n👤 От: @{message.from_user.username}\n📝 Данные: {message.text}")
-    await message.answer("✅ **Данные переданы менеджеру!** Ожидайте ответа.", reply_markup=back_to_menu())
+    # УВЕДОМЛЕНИЕ МЕНЕДЖЕРУ
+    report = f"💰 **КЛИЕНТ ХОЧЕТ ПРОДАТЬ!**\n👤 От: @{message.from_user.username}\n📝 Данные: {message.text}"
+    await bot.send_message(MANAGER_ID, report)
+    await message.answer("✅ **Данные переданы менеджеру!** Ожидайте ответа.", reply_markup=back_btn())
     await state.clear()
 
-# --- ЗВЕЗДЫ (STARS) ---
+# --- ПОПОЛНЕНИЕ (STARS) ---
 @dp.callback_query(F.data == "top_up_stars")
 async def top_up_stars(call: types.CallbackQuery):
-    await call.message.edit_caption(
-        caption="⭐ **ПОПОЛНЕНИЕ ЧЕРЕЗ TELEGRAM STARS**\n\nВыбери сумму пополнения:",
-        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="⭐ 50 Stars", callback_data="pay_50")],
-            [types.InlineKeyboardButton(text="⭐ 100 Stars", callback_data="pay_100")],
-            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="to_main")]
-        ]),
-        parse_mode="Markdown"
-    )
+    kb = [[types.InlineKeyboardButton(text="⭐ 50 Stars", callback_data="pay_50")],
+          [types.InlineKeyboardButton(text="⭐ 100 Stars", callback_data="pay_100")],
+          [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="to_main")]]
+    await call.message.edit_caption(caption="⭐ **ПОПОЛНЕНИЕ STARS**", reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("pay_"))
 async def start_invoice(call: types.CallbackQuery):
     amount = int(call.data.split("_")[1])
-    # Создаем счет
-    await bot.send_invoice(
-        chat_id=call.from_user.id,
-        title="Пополнение Фофаридок",
-        description=f"Пополнение баланса на {amount} ед.",
-        payload="topup",
-        currency="XTR", # Код для Telegram Stars
-        prices=[types.LabeledPrice(label="Stars", amount=amount)]
-    )
+    await bot.send_invoice(chat_id=call.from_user.id, title="Пополнение", description=f"{amount} фофаридок", payload="stars", currency="XTR", prices=[types.LabeledPrice(label="Stars", amount=amount)])
     await call.answer()
 
 # --- ЗАПУСК ---
