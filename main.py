@@ -3,112 +3,150 @@ import logging
 from flask import Flask
 from threading import Thread
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# --- СЕРВЕР ДЛЯ RENDER ---
+# --- ТЕХНИЧЕСКАЯ ЧАСТЬ ---
 app = Flask('')
 @app.route('/')
-def home(): return "Market Live!"
+def home(): return "Favorit Market is Running! 🛒"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
-# --- СКЛАД (ДАННЫЕ РЫНКА) ---
-STOCK = {
-    "🇺🇸 США": ["+1 34678234", "+1 30566788", "+1 21245677"],
-    "🇧🇩 Бангладеш": ["+880 171234567"],
-    "🇮🇳 Индия": ["+91 987654321", "+91 998877665"],
-    "🇨🇦 Канада": ["+1 416555019"]
-}
-
+# --- КОНФИГ ---
 TOKEN = "8742664439:AAEzi_ucWeV2t3KrzUUbWr5ngRQLX24HkYc"
 ADMIN_ID = 8266529611
-MANAGER_ID = 8490517217
-PHOTO = "https://cdn-ru.ru/sub/18e79943-e4a8-445c-9271-571f0df51f14"
+PHOTO_URL = "https://cdn-ru.ru/sub/18e79943-e4a8-445c-9271-571f0df51f14"
 
-class Form(StatesGroup):
-    waiting_for_sell = State()
+# Глобальный список товаров (в памяти)
+MARKET_DATABASE = []
+
+class SellForm(StatesGroup):
+    country = State()
+    description = State()
+    price = State()
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # --- КЛАВИАТУРЫ ---
 def main_kb():
-    return types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="🛒 Купить аккаунт", callback_data="market_buy")],
-        [types.InlineKeyboardButton(text="📦 Продать (Стать поставщиком)", callback_data="market_sell")],
-        [types.InlineKeyboardButton(text="🆘 Поддержка", url="https://t.me/favorit_shop_humber")]
-    ])
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="🛒 РЫНОК", callback_data="open_market"))
+    builder.row(
+        types.InlineKeyboardButton(text="📦 ПРОДАТЬ", callback_data="start_sell"),
+        types.InlineKeyboardButton(text="🆘 ПОДДЕРЖКА", url="https://t.me/favorit_shop_humber")
+    )
+    return builder.as_markup()
 
-# --- ЛОГИКА ---
+# --- ГЛАВНОЕ МЕНЮ ---
 @dp.message(CommandStart())
-async def cmd_start(message: types.Message):
+@dp.message(Command("cancel"))
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer_photo(
-        photo=PHOTO,
-        caption="👮 **ДОБРО ПОЖАЛОВАТЬ НА РЫНОК!**\n\nЗдесь ты можешь купить готовые аккаунты или продать свои.",
+        photo=PHOTO_URL,
+        caption="👮 **FAVORIT MARKET**\n\nКупля и продажа аккаунтов в одном месте.",
         reply_markup=main_kb(),
         parse_mode="Markdown"
     )
 
-# --- РАЗДЕЛ КУПИТЬ ---
-@dp.callback_query(F.data == "market_buy")
-async def show_market(call: types.CallbackQuery):
-    buttons = []
-    for country, items in STOCK.items():
-        count = len(items)
-        buttons.append([types.InlineKeyboardButton(text=f"{country} ({count} шт.)", callback_data=f"list_{country}")])
-    
-    buttons.append([types.InlineKeyboardButton(text="⬅️ Назад", callback_data="to_main")])
-    await call.message.edit_caption(caption="🌍 **ВЫБЕРИ СТРАНУ:**", reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons))
-
-@dp.callback_query(F.data.startswith("list_"))
-async def show_numbers(call: types.CallbackQuery):
-    country = call.data.split("_")[1]
-    numbers = STOCK.get(country, [])
-    
-    if not numbers:
-        await call.answer("Товара временно нет!", show_alert=True)
-        return
-
-    text = f"📍 **Доступные номера ({country}):**\n\n"
-    kb = []
-    for num in numbers:
-        text += f"• `{num}`\n"
-        kb.append([types.InlineKeyboardButton(text=f"Купить {num}", callback_data=f"buy_final_{country}_{num}")])
-    
-    kb.append([types.InlineKeyboardButton(text="⬅️ К списку стран", callback_data="market_buy")])
-    await call.message.edit_caption(caption=text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
-
-@dp.callback_query(F.data.startswith("buy_final_"))
-async def buy_final(call: types.CallbackQuery):
-    _, _, country, num = call.data.split("_")
-    # Уведомление тебе
-    await bot.send_message(ADMIN_ID, f"🛍 **ЗАКАЗ!**\n👤 Покупатель: @{call.from_user.username}\n📱 Номер: `{num}` ({country})")
-    await call.answer("Заявка отправлена админу! Ожидайте связи.", show_alert=True)
-
-# --- РАЗДЕЛ ПРОДАТЬ ---
-@dp.callback_query(F.data == "market_sell")
-async def sell_start(call: types.CallbackQuery, state: FSMContext):
-    await call.message.answer("💰 **ПРОДАЖА**\nОтправь данные аккаунта (Страна, номер, цена):")
-    await state.set_state(Form.waiting_for_sell)
+# --- ЛОГИКА ПРОДАЖИ (ДОБАВЛЕНИЕ В РЫНОК) ---
+@dp.callback_query(F.data == "start_sell")
+async def sell_1(call: types.CallbackQuery, state: FSMContext):
+    await call.message.answer("🌍 **Шаг 1:** Из какой страны аккаунт?")
+    await state.set_state(SellForm.country)
     await call.answer()
 
-@dp.message(Form.waiting_for_sell)
-async def sell_done(message: types.Message, state: FSMContext):
-    # Уведомление менеджеру
-    await bot.send_message(MANAGER_ID, f"💰 **ПРЕДЛОЖЕНИЕ ОТ ПОСТАВЩИКА!**\n👤 От: @{message.from_user.username}\n📝 Данные: {message.text}")
-    await message.answer("✅ **Твоя заявка на рынке!** Менеджер проверит её и свяжется с тобой.")
+@dp.message(SellForm.country)
+async def sell_2(message: types.Message, state: FSMContext):
+    await state.update_data(country=message.text)
+    await message.answer("📝 **Шаг 2:** Напиши описание (что на аккаунте, отлёжка и т.д.):")
+    await state.set_state(SellForm.description)
+
+@dp.message(SellForm.description)
+async def sell_3(message: types.Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await message.answer("💰 **Шаг 3:** Укажи цену в Telegram Stars (только число):")
+    await state.set_state(SellForm.price)
+
+@dp.message(SellForm.price)
+async def sell_final(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("❌ Введи число!")
+        return
+    
+    data = await state.get_data()
+    new_item = {
+        "id": len(MARKET_DATABASE) + 1,
+        "seller": message.from_user.username or message.from_user.id,
+        "country": data['country'],
+        "desc": data['description'],
+        "price": int(message.text)
+    }
+    MARKET_DATABASE.append(new_item)
+    
+    await message.answer("✅ **Товар выставлен на Рынок!**", reply_markup=main_kb())
     await state.clear()
 
-@dp.callback_query(F.data == "to_main")
-async def back(call: types.CallbackQuery):
-    await call.message.edit_caption(caption="👮 **ГЛАВНОЕ МЕНЮ**", reply_markup=main_kb())
+# --- ЛОГИКА РЫНКА (ПРОСМОТР И ПОКУПКА) ---
+@dp.callback_query(F.data == "open_market")
+async def show_market(call: types.CallbackQuery):
+    if not MARKET_DATABASE:
+        await call.answer("Пусто! Будь первым, кто выставит товар.", show_alert=True)
+        return
 
+    text = "🚀 **АКТУАЛЬНЫЕ ТОВАРЫ:**\n\n"
+    builder = InlineKeyboardBuilder()
+    
+    for item in MARKET_DATABASE:
+        text += f"ID {item['id']} | {item['country']} — {item['price']}⭐\n"
+        builder.row(types.InlineKeyboardButton(
+            text=f"Купить ID {item['id']} ({item['country']})", 
+            callback_data=f"buy_{item['id']}"
+        ))
+    
+    builder.row(types.InlineKeyboardButton(text="⬅️ НАЗАД", callback_data="back_to_menu"))
+    await call.message.edit_caption(caption=text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def process_buy(call: types.CallbackQuery):
+    item_id = int(call.data.split("_")[1])
+    item = next((i for i in MARKET_DATABASE if i['id'] == item_id), None)
+    
+    if item:
+        await bot.send_invoice(
+            chat_id=call.from_user.id,
+            title=f"Аккаунт {item['country']}",
+            description=f"Описание: {item['desc']}\nПродавец: @{item['seller']}",
+            payload=f"pay_{item_id}",
+            currency="XTR",
+            prices=[types.LabeledPrice(label="Покупка", amount=item['price'])]
+        )
+    await call.answer()
+
+@dp.pre_checkout_query()
+async def checkout(query: types.PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(query.id, ok=True)
+
+@dp.message(F.successful_payment)
+async def success_pay(message: types.Message):
+    item_id = int(message.successful_payment.invoice_payload.split("_")[1])
+    # Уведомляем админа
+    await bot.send_message(ADMIN_ID, f"💰 **ПРОДАНО!**\nТовар ID: {item_id}\nПокупатель: @{message.from_user.username}")
+    await message.answer("✅ Оплата прошла! Свяжитесь с продавцом или админом для получения данных.")
+
+@dp.callback_query(F.data == "back_to_menu")
+async def back(call: types.CallbackQuery):
+    await call.message.edit_caption(caption="👮 **FAVORIT MARKET**", reply_markup=main_kb())
+
+# --- ЗАПУСК ---
 async def main():
     logging.basicConfig(level=logging.INFO)
     keep_alive()
-    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.delete_webhook(drop_pending_updates=True) # Защита от ConflictError
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
